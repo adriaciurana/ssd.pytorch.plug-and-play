@@ -1,0 +1,4 @@
+from .vgg16_300 import Arch300_VGG16
+ARCHITECTURES = {
+	Arch300_VGG16.NAME: Arch300_VGG16
+}

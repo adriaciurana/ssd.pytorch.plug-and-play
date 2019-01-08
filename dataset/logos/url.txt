@@ -1,0 +1,9 @@
+1 - Go to: http://image.ntua.gr/iva/datasets/flickr_logos/
+2 - Download dataset
+3 - create data folder in this folder.
+4 - unzip the dataset inside the data. Like:
+	data/images
+	data/flickr_logos_27_dataset_distractor_set_urls.txt
+	data/flickr_logos_27_dataset_query_set_annotation.txt
+	data/flickr_logos_27_dataset_training_set_annotation.txt
+	data/url.txt
