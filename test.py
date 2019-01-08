@@ -18,7 +18,7 @@ else:
 net = SSD.load(weights=weights)
 
 COLORMAP = [(255, 0, 0), (0, 255, 0), (0, 0, 255)]
-for filename in glob.glob(args.test_filenames):
+for j, filename in enumerate(glob.glob(args.test_filenames)):
     im = cv2.imread(filename)
     results = net.predict(im)
     for i, result in enumerate(results):
@@ -33,3 +33,4 @@ for filename in glob.glob(args.test_filenames):
     cv2.imshow('SSD detections & recognitions', im)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
+    #cv2.imwrite('doc/'+str(j)+".jpg", im)
