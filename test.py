@@ -19,10 +19,10 @@ net = SSD.load(weights=weights)
 
 COLORMAP = [(255, 0, 0), (0, 255, 0), (0, 0, 255)]
 images = []
-for j, filename in enumerate(glob.glob(args.test_filenames)):
-    images.append(cv2.imread(filename))
+images = [cv2.imread(filename) for filename in glob.glob(args.test_filenames)]
 
 results = net.predict(images)
+
 for im, result_image in zip(images, results):
     for i, result in enumerate(result_image):
         print(LogoDataset.CLASSES[result['class']])
