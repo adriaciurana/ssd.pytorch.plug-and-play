@@ -592,7 +592,7 @@ class SSD(torch.nn.Module):
         
         return output
     
-    def predict(self, images, normalize=True, threshold=0.5, mode='union', image_coordinates=True):
+    def predict(self, images, normalize=True, threshold=0.5, mode='union', image_coordinates=True, is_BGR=True):
         """
         Args:
             images: tuple of images or image.
@@ -611,7 +611,10 @@ class SSD(torch.nn.Module):
         for i, image in enumerate(images):
             if image_coordinates:
                 sizes.append(image.shape[:2])
-            new_images[i] = cv2.resize(image, (self.image_size, self.image_size))[..., ::-1].transpose(2, 0, 1)
+                image = cv2.resize(image, (self.image_size, self.image_size))
+                if is_BGR:
+                    image = image[..., ::-1]
+            new_images[i] = image.transpose(2, 0, 1)
 
         images = torch.from_numpy(new_images).float()
         
@@ -627,6 +630,7 @@ class SSD(torch.nn.Module):
         outputs = []
         batch_size, num_classes, num_top_k, _ = detections.size()
         for batch_index, size in enumerate(sizes):
+            output_element = []
             for class_ in range(num_classes):
                 for i in range(num_top_k):
                     if detections[batch_index, class_, i, 0] >= threshold:
@@ -636,9 +640,10 @@ class SSD(torch.nn.Module):
                         if image_coordinates:
                             position *= torch.Tensor([size[1], size[0], size[1], size[0]])
                         
-                        outputs.append({'class': class_, 'confidence': float(confidence), 'position': position.cpu().detach().numpy()})
+                        output_element.append({'class': class_, 'confidence': float(confidence), 'position': position.cpu().detach().numpy()})
                     else:
                         break
+            outputs.append(output_element)
         return outputs
 
     """
