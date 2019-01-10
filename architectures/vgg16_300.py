@@ -1,5 +1,6 @@
 import torch
 from torchvision.models import vgg16 as VGG16_model
+from torchvision.transforms import Normalize
 from .abstract_architecture import AbstractArchitecture
 class Arch300_VGG16(AbstractArchitecture):
     NAME = '300_VGG16'
@@ -59,10 +60,11 @@ class Arch300_VGG16(AbstractArchitecture):
 
     image_size = 300
 
-    normalization = {
+    normalization = Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    """{
         'mu':[104, 117, 123],
         'sigma': [1, 1, 1]
-    }
+    }"""
 
     def base(pretrained):
         out_channels_of_layers_with_classification = []

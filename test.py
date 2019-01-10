@@ -3,7 +3,7 @@ from ssd import SSD
 from dataset.logos.logo_dataset import LogoDataset
 str2bool = lambda x: x.lower() in ("yes", "true", "t", "1")
 parser = argparse.ArgumentParser(description='SSD plug & play test')
-parser.add_argument('--weights', default='checkpoints/model_300_vgg16_final_logos.pth.tar',
+parser.add_argument('--weights', default='checkpoints/model_300_VGG16_final_logos.pth.tar',
                     type=str, help='Checkpoint of the model')
 parser.add_argument('--cuda', default=True, type=str2bool, help='Enable or not cuda')
 parser.add_argument('--test_filenames', default='test_images/*.jpg', type=str, help='Regex of filenames')

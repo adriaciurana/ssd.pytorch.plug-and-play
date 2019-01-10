@@ -12,7 +12,7 @@ This implementation tries to simplify the learning process of an SSD in differen
 - It is extremely documented what the code tries to do understandable to all and thus be able to improve it continuously.
 """
 
-import torch, numpy as np, cv2, itertools, math, imgaug as ia
+import torch, torchvision, numpy as np, cv2, itertools, math, imgaug as ia
 from architectures import ARCHITECTURES
 class SSD(torch.nn.Module):
     """
@@ -408,7 +408,7 @@ class SSD(torch.nn.Module):
             
         return locations_priors_encoded, confidences_priors_labels
 
-    def compute_loss(self, predictions, targets):
+    def get_loss_predictions(self, predictions, targets):
         """
         Args:
             predictions: tuple of confidences and locations.
@@ -455,20 +455,22 @@ class SSD(torch.nn.Module):
         loss /= (only_positives.sum().float() + SSD.EPS) #.cuda().float()
         return loss
 
-    def evaluate(self, images, targets, normalize=True, net=None):
+    def compute_loss(self, images, targets, normalize=True, net=None):
         """
         Args:
             images: Tensor of images
             targets: list of list of numpy of x1, y1, x2, y2, class in 0-1 coordinates
-            net: allow to use dataparallel
+            net: allow to use data-parallel model
         """
         if normalize:
             images = self.normalize(images)
+        
         if net is not None:
             predictions = net(images)
         else: 
             predictions = self(images)
-        return self.compute_loss(predictions, targets), predictions
+        
+        return self.get_loss_predictions(predictions, targets), predictions
 
     """
         PREDICTION
@@ -533,63 +535,64 @@ class SSD(torch.nn.Module):
             predictions: tuple of confidences and locations.
             mode: type of nms union
         """
-        locations_pred, confidences_pred = predictions
-        confidences_pred = torch.nn.functional.softmax(confidences_pred, dim=-1)
-        confidences_pred = confidences_pred.permute(0, 2, 1)
+        with torch.no_grad():
+            locations_pred, confidences_pred = predictions
+            confidences_pred = torch.nn.functional.softmax(confidences_pred, dim=-1)
+            confidences_pred = confidences_pred.permute(0, 2, 1)
 
-        # Batch size
-        batch_size = locations_pred.size(0)
+            # Batch size
+            batch_size = locations_pred.size(0)
 
-        # Classes
-        #prior_classes = torch.arange(self.num_classes_plus_unknown).unsqueeze(0).expand_as(len(self.priors), -1)
-        
-        output = torch.zeros(batch_size, self.num_classes, self.thresholds['prediction_top_k'], 5)   
-        for batch_index in range(batch_size):
-            locations_decoded = self.decode(locations_pred[batch_index])
+            # Classes
+            #prior_classes = torch.arange(self.num_classes_plus_unknown).unsqueeze(0).expand_as(len(self.priors), -1)
+            
+            output = torch.zeros(batch_size, self.num_classes, self.thresholds['prediction_top_k'], 5)   
+            for batch_index in range(batch_size):
+                locations_decoded = self.decode(locations_pred[batch_index])
 
-            """# Seleccionamos los top_k
-            confidences_pred_sorted, confidences_pred_indexes = confidences_pred.sort(dim=0, descending=True)
-            confidences_pred_sorted = confidences_pred_sorted[:self.confidence_top_k]
-            confidences_pred_indexes = confidences_pred_indexes[:self.confidence_top_k]
+                """# Seleccionamos los top_k
+                confidences_pred_sorted, confidences_pred_indexes = confidences_pred.sort(dim=0, descending=True)
+                confidences_pred_sorted = confidences_pred_sorted[:self.confidence_top_k]
+                confidences_pred_indexes = confidences_pred_indexes[:self.confidence_top_k]
 
-            # Filtramos los resultados inferiores a un threshold
-            only_positives = confidences_pred_sorted > self.confidence_threshold
-            confidences_pred_sorted = confidences_pred_sorted[only_positives]
-            confidences_pred_indexes = confidences_pred_indexes[only_positives]
-
-            # Obtenemos las confidences, locatiosn y la clase a que pertenece
-            positive_confidences = confidences_pred_sorted
-            positive_locations = locations_decoded[confidences_pred_indexes].view(-1, 4)
-            positive_classes = prior_classes[confidences_pred_indexes]"""
-
-
-
-            #only_positives = confidences_pred[batch_index] > self.confidence_threshold
-            #positive_confidences = confidences_pred[only_positives]
-            #positive_locations = locations_decoded[only_positives].view(-1, 4)
-            #positive_classes = prior_classes[only_positives]
-            confidences_pred_per_batch = confidences_pred[batch_index]
-
-            for class_ in range(1, self.num_classes_plus_unknown):
                 # Filtramos los resultados inferiores a un threshold
-                only_positives = confidences_pred_per_batch[class_] > self.thresholds['prediction_confidence_threshold']
-                if only_positives.sum() == 0:
-                    continue
+                only_positives = confidences_pred_sorted > self.confidence_threshold
+                confidences_pred_sorted = confidences_pred_sorted[only_positives]
+                confidences_pred_indexes = confidences_pred_indexes[only_positives]
 
-                
-                positive_confidences = confidences_pred_per_batch[class_][only_positives]
-                positive_locations = locations_decoded[only_positives.unsqueeze(1).expand_as(locations_decoded)].view(-1, 4)
-                
-                confidences_pred_sorted, confidences_pred_indexes = positive_confidences.sort(dim=0, descending=True)
-                confidences_pred_sorted = confidences_pred_sorted[:self.thresholds['prediction_top_k']]
-                confidences_pred_indexes = confidences_pred_indexes[:self.thresholds['prediction_top_k']]
-                
+                # Obtenemos las confidences, locatiosn y la clase a que pertenece
                 positive_confidences = confidences_pred_sorted
-                positive_locations = positive_locations[confidences_pred_indexes, :]
+                positive_locations = locations_decoded[confidences_pred_indexes].view(-1, 4)
+                positive_classes = prior_classes[confidences_pred_indexes]"""
 
-                selected_ids = SSD.box_nms(positive_locations, positive_confidences, threshold=self.thresholds['prediction_iou_nms'], mode=mode)
-                output[batch_index, class_ - 1, :len(selected_ids)] = torch.cat((positive_confidences[selected_ids].unsqueeze(1), positive_locations[selected_ids]), dim=1)
-        
+
+
+                #only_positives = confidences_pred[batch_index] > self.confidence_threshold
+                #positive_confidences = confidences_pred[only_positives]
+                #positive_locations = locations_decoded[only_positives].view(-1, 4)
+                #positive_classes = prior_classes[only_positives]
+                confidences_pred_per_batch = confidences_pred[batch_index]
+
+                for class_ in range(1, self.num_classes_plus_unknown):
+                    # Filtramos los resultados inferiores a un threshold
+                    only_positives = confidences_pred_per_batch[class_] > self.thresholds['prediction_confidence_threshold']
+                    if only_positives.sum() == 0:
+                        continue
+
+                    
+                    positive_confidences = confidences_pred_per_batch[class_][only_positives]
+                    positive_locations = locations_decoded[only_positives.unsqueeze(1).expand_as(locations_decoded)].view(-1, 4)
+                    
+                    confidences_pred_sorted, confidences_pred_indexes = positive_confidences.sort(dim=0, descending=True)
+                    confidences_pred_sorted = confidences_pred_sorted[:self.thresholds['prediction_top_k']]
+                    confidences_pred_indexes = confidences_pred_indexes[:self.thresholds['prediction_top_k']]
+                    
+                    positive_confidences = confidences_pred_sorted
+                    positive_locations = positive_locations[confidences_pred_indexes, :]
+
+                    selected_ids = SSD.box_nms(positive_locations, positive_confidences, threshold=self.thresholds['prediction_iou_nms'], mode=mode)
+                    output[batch_index, class_ - 1, :len(selected_ids)] = torch.cat((positive_confidences[selected_ids].unsqueeze(1), positive_locations[selected_ids]), dim=1)
+            
         return output
     
     def predict(self, images, normalize=True, threshold=0.5, mode='union', image_coordinates=True, is_BGR=True):
@@ -660,15 +663,16 @@ class SSD(torch.nn.Module):
         Args:
             x: Tensor batch of images.
         """
-        x = x.float()
-
+        x = x.float() / 255.0 # ToTensor
+        
         # Apply normalization
-        x[:, 0, :, :] -= self.architecture.normalization['mu'][0]
-        x[:, 1, :, :] -= self.architecture.normalization['mu'][1]
-        x[:, 2, :, :] -= self.architecture.normalization['mu'][2]
-        x[:, 0, :, :] /= self.architecture.normalization['sigma'][0]
-        x[:, 1, :, :] /= self.architecture.normalization['sigma'][1]
-        x[:, 2, :, :] /= self.architecture.normalization['sigma'][2]
+        x[:, 0, :, :] -= self.architecture.normalization.mean[0]
+        x[:, 1, :, :] -= self.architecture.normalization.mean[1]
+        x[:, 2, :, :] -= self.architecture.normalization.mean[2]
+        x[:, 0, :, :] /= self.architecture.normalization.std[0]
+        x[:, 1, :, :] /= self.architecture.normalization.std[1]
+        x[:, 2, :, :] /= self.architecture.normalization.std[2]
+
         return x
 
     def load_model(self, weights):

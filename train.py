@@ -53,6 +53,11 @@ for k in args.__dict__:
 print('======================================')
 
 """
+    CUDA
+"""
+has_cuda = args.cuda and torch.cuda.is_available()
+
+"""
     CHECK HAVE TENSORBOARDX
 """
 if args.tensorboardX:
@@ -101,45 +106,45 @@ AUGMENTERS = [
     )
 ]
 
-
-"""
-    DATASET DEFINITION
-"""
-train_dataset = LogoDataset(root=os.path.dirname(os.path.abspath(__file__)) + '/dataset/logos/data', transform=SSD.Utils.Transform(AUGMENTERS, architecture.image_size))
-val_dataset = LogoDataset(root=os.path.dirname(os.path.abspath(__file__)) + '/dataset/logos/data', transform=SSD.Utils.Transform(None, architecture.image_size))
-
-size_train_dataset = int(0.8 * len(train_dataset))
-indices = torch.randperm(len(train_dataset))
-train_dataset, val_dataset = torch.utils.data.dataset.Subset(train_dataset, indices[:size_train_dataset]), torch.utils.data.dataset.Subset(val_dataset, indices[size_train_dataset:])
-
 """
     MODEL
 """
-model_net = SSD(architecture=args.architecture, cuda=args.cuda, pretrained=args.pretrained_base, num_classes=train_dataset.dataset.num_classes)
+model_net = SSD(architecture=args.architecture, cuda=has_cuda, pretrained=args.pretrained_base, num_classes=len(LogoDataset.CLASSES))
 train_writer.add_graph(model_net, torch.rand(1, 3, model_net.image_size, model_net.image_size))
 
-if args.cuda:
+if has_cuda:
     net = torch.nn.DataParallel(model_net)
     torch.backends.cudnn.benchmark = True
 else:
     net = model_net
 
-def init(m):
-    if isinstance(m, torch.nn.Conv2d):
-        torch.nn.init.xavier_uniform_(m.weight.data)
-        m.bias.data.zero_()
-
-# Init weights of base
-if not args.pretrained_base:
-    model_net.base_net.apply(init)
-
-# Init the rest of weights
-model_net.apply(init)
-
 # Load weights
 if args.resume is not None:
     print('Loading checkpoint...')
-    model_net.load(torch.load(args.resume)['model'])
+    model_net.load_model(torch.load(args.resume)['model'])
+
+else:
+
+    def init(m):
+        if isinstance(m, torch.nn.Conv2d):
+            torch.nn.init.xavier_uniform_(m.weight.data)
+            m.bias.data.zero_()
+
+    # Init weights of base
+    if not args.pretrained_base:
+        model_net.base_net.apply(init)
+
+    # Init the rest of weights
+    model_net.apply(init)
+
+"""
+    DATASET DEFINITION
+"""
+train_dataset = LogoDataset(root=os.path.dirname(os.path.abspath(__file__)) + '/dataset/logos/data', transform=SSD.Utils.Transform(AUGMENTERS, model_net.image_size))
+val_dataset = LogoDataset(root=os.path.dirname(os.path.abspath(__file__)) + '/dataset/logos/data', transform=SSD.Utils.Transform(None, model_net.image_size))
+size_train_dataset = int(0.8 * len(train_dataset))
+indices = torch.randperm(len(train_dataset)).cpu()
+train_dataset, val_dataset = torch.utils.data.dataset.Subset(train_dataset, indices[:size_train_dataset]), torch.utils.data.dataset.Subset(val_dataset, indices[size_train_dataset:])
 
 """
     OPTIMIZER DEFINITION
@@ -172,7 +177,7 @@ def train(epoch):
             batch_iter = iter(data_loader_train)
             images, targets = next(batch_iter)
 
-        if args.cuda:
+        if has_cuda:
             images = images.cuda()
             targets = [target.cuda() for target in targets]
         
@@ -180,7 +185,7 @@ def train(epoch):
         
         optimizer.zero_grad()
         
-        loss, _ = model_net.evaluate(images, targets, net=net)
+        loss, _ = model_net.compute_loss(images, targets, net=net)
         if not math.isinf(loss):
             loss_mean += loss.item()
             loss_counter += 1
@@ -210,31 +215,31 @@ def train(epoch):
 
 def validation(epoch):
     net.eval()
-    
-    batch_iter = iter(data_loader_val)
-    loss_mean = 0
-    loss_counter = 0
-    t0 = time.time()
-    for iteration in range(args.iterations_val):
-        # Load data
-        try:
-            images, targets = next(batch_iter)
-        except StopIteration:
-            batch_iter = iter(data_loader_val)
-            images, targets = next(batch_iter)
+    with torch.no_grad(): 
+        batch_iter = iter(data_loader_val)
+        loss_mean = 0
+        loss_counter = 0
+        t0 = time.time()
+        for iteration in range(args.iterations_val):
+            # Load data
+            try:
+                images, targets = next(batch_iter)
+            except StopIteration:
+                batch_iter = iter(data_loader_val)
+                images, targets = next(batch_iter)
 
-        if args.cuda:
-            images = images.cuda()
-            targets = [target.cuda() for target in targets]
+            if has_cuda:
+                images = images.cuda()
+                targets = [target.cuda() for target in targets]
 
-        loss, _ = model_net.evaluate(images, targets, net=net)
-        if not math.isinf(loss):
-            loss_mean += loss.item()
-            loss_counter += 1
-        
-    t1 = time.time()
-    print('epoch %d || validation || Loss: %.4f ||' % (epoch, loss_mean / args.iterations_val), end=' ')
-    print('timer: %.4f sec.' % (t1 - t0))
+            loss, _ = model_net.compute_loss(images, targets, net=net)
+            if not math.isinf(loss):
+                loss_mean += loss.item()
+                loss_counter += 1
+            
+        t1 = time.time()
+        print('epoch %d || validation || Loss: %.4f ||' % (epoch, loss_mean / args.iterations_val), end=' ')
+        print('timer: %.4f sec.' % (t1 - t0))
 
     if loss_counter == 0:
         return 0
