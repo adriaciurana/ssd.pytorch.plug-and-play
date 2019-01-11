@@ -652,6 +652,10 @@ class SSD(torch.nn.Module):
     """
         UTILS
     """
+    class Exceptions:
+        class NeedInit(Exception):
+            pass
+
     def apply_only_non_base(self, x):
         self.base_misc.apply(x)
         self.extras.apply(x)
@@ -675,13 +679,39 @@ class SSD(torch.nn.Module):
 
         return x
 
-    def load_model(self, weights):
-        self.load_state_dict(weights['state_dict'])
+    def load_model(self, weights, init=None):
+        # Check the num of classes in order to copy or not locations and confidences
+        if weights['num_classes'] != self.num_classes:
+            # Only load base, misc and extras. Locations and confidences are differents.
+            new_weights = {}
+            for k, w in weights['state_dict'].items():
+                if 'locations' in k or 'confidences' in k:
+                    continue
+
+                new_weights[k] = w
+        else:
+            new_weights = weights['state_dict']
+
+        # Check which layers not contain weights
+        not_exists_weights = set(model.state_dict().keys()) - set(new_weights.keys())
+        
+        # Load weights
+        self.load_state_dict(new_weights)
+
+        # Init layers that no exist in the weights that try to load
+        if len(not_exists_weights) > 0:
+            if init is None:
+                raise SSD.Exceptions.NeedInit('The number of classes dismatch between current model and weights. Use init parameter to init locations and confidences. %s' %(', '.join(not_exists_weights)))
+
+            for k, w in self.named_modules():
+                if k in not_exists_weights:
+                    w.apply(init)
+
 
     @staticmethod
-    def load(weights, cuda=True):
+    def load(weights, cuda=True, init=None):
         model = SSD(cuda=cuda, architecture=weights['architecture'], num_classes=weights['num_classes'])
-        model.load_model(weights)
+        model.load_model(weights, init)
         return model
 
     def save_model(self):

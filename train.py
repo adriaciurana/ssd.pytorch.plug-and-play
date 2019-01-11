@@ -119,23 +119,26 @@ else:
     net = model_net
 
 # Load weights
+def init(m):
+    if isinstance(m, torch.nn.Conv2d):
+        torch.nn.init.xavier_uniform_(m.weight.data)
+        m.bias.data.zero_()
+
 if args.resume is not None:
-    print('Loading checkpoint...')
+    print('Loading checkpoint / model...')
     model_net.load_model(torch.load(args.resume)['model'])
 
 else:
-
-    def init(m):
-        if isinstance(m, torch.nn.Conv2d):
-            torch.nn.init.xavier_uniform_(m.weight.data)
-            m.bias.data.zero_()
-
     # Init weights of base
     if not args.pretrained_base:
+        print('Init pretrained base...')
         model_net.base_net.apply(init)
+    else:
+        print('Loading pretrained base...')
 
     # Init the rest of weights
-    model_net.apply(init)
+    print('Init misc, extras, locations and confidences...')
+    model_net.apply_only_non_base(init)
 
 """
     DATASET DEFINITION
